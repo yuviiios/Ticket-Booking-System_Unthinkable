@@ -1,4 +1,9 @@
+import dotenv from 'dotenv';
 import { z } from 'zod';
+
+// Must run before parse: ESM evaluates this module before the importer's body,
+// so dotenv.config() in index.ts is too late.
+dotenv.config();
 
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),

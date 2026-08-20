@@ -239,7 +239,6 @@ model WaitlistEntry {
   customer  User   @relation(fields: [customerId], references: [id])
   offers    WaitlistOffer[]
 
-  @@unique([showId, categoryId, customerId], where: { status: WAITING })
   @@index([showId, categoryId, status, createdAt])
 }
 

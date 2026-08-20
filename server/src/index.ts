@@ -1,7 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { env } from './config/env.js';
 import authRoutes from './routes/auth.js';
 import venueRoutes from './routes/venues.js';
@@ -12,8 +11,6 @@ import waitlistRoutes from './routes/waitlist.js';
 import dashboardRoutes from './routes/dashboard.js';
 import { initSocketServer } from './realtime/socket.js';
 import { startSweeper } from './jobs/sweeper.js';
-
-dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
