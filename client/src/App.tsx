@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminVenues from './pages/AdminVenues';
 import OrganiserShows from './pages/OrganiserShows';
+import Dashboard from './pages/Dashboard';
 import Browse from './pages/Browse';
 import ShowDetail from './pages/ShowDetail';
 import MyBookings from './pages/MyBookings';
@@ -16,6 +17,7 @@ function Nav({ user, logout }: any) {
     { path: '/browse', label: 'Browse', role: ['CUSTOMER', 'ORGANISER', 'ADMIN'] },
     { path: '/bookings', label: 'My Bookings', role: ['CUSTOMER'] },
     { path: '/waitlist', label: 'Waitlist', role: ['CUSTOMER'] },
+    { path: '/organiser/dashboard', label: 'Dashboard', role: ['ORGANISER'] },
     { path: '/organiser/shows', label: 'My Shows', role: ['ORGANISER'] },
     { path: '/admin/venues', label: 'Venues', role: ['ADMIN'] },
   ];
@@ -113,6 +115,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <AcceptOffer />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/organiser/dashboard"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
                 </ProtectedRoute>
               }
             />

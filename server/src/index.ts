@@ -9,6 +9,7 @@ import showRoutes from './routes/shows.js';
 import holdRoutes from './routes/holds.js';
 import bookingRoutes from './routes/bookings.js';
 import waitlistRoutes from './routes/waitlist.js';
+import dashboardRoutes from './routes/dashboard.js';
 import { initSocketServer } from './realtime/socket.js';
 import { startSweeper } from './jobs/sweeper.js';
 
@@ -30,6 +31,7 @@ app.use('/api/shows', showRoutes);
 app.use('/api/holds', holdRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/waitlist', waitlistRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Initialize Socket.IO
 initSocketServer(httpServer);
