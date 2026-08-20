@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useShows } from '../hooks/useShows';
+import SeatMap from '../components/SeatMap';
+import { useAuth } from '../context/AuthContext';
 
 export default function ShowDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { fetchShow } = useShows();
   const [show, setShow] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -21,18 +24,7 @@ export default function ShowDetail() {
   if (loading) return <div className="p-4 text-center">Loading...</div>;
   if (!show) return <div className="p-4 text-center text-red-600">Show not found</div>;
 
-  const seatGrid = show.seats || [];
-  const maxRow = seatGrid.length > 0 ? Math.max(...seatGrid.map((s: any) => s.seat.gridRow)) + 1 : 0;
-  const maxCol = seatGrid.length > 0 ? Math.max(...seatGrid.map((s: any) => s.seat.gridCol)) + 1 : 0;
-
-  const grid: any[][] = Array.from({ length: maxRow }, () => Array(maxCol).fill(null));
-  seatGrid.forEach((ss: any) => {
-    grid[ss.seat.gridRow][ss.seat.gridCol] = ss;
-  });
-
-  const categoryMap = new Map(
-    show.venue.categories.map((c: any) => [c.id, c])
-  );
+  const isCustomer = user?.role === 'CUSTOMER';
 
   return (
     <div className="container mx-auto p-4">
@@ -88,52 +80,15 @@ export default function ShowDetail() {
         )}
       </div>
 
-      {/* Seat Map Preview */}
       <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-xl font-bold mb-4">Seat Map</h2>
-        <div className="mb-4 text-center">
-          <div className="inline-block px-8 py-2 bg-gray-800 text-white rounded-t-lg">
-            SCREEN / STAGE
+        <h2 className="text-xl font-bold mb-4">Select Seats</h2>
+        {isCustomer ? (
+          <SeatMap show={show} />
+        ) : (
+          <div className="text-center py-8 text-gray-600">
+            Login as CUSTOMER to book seats
           </div>
-        </div>
-        <div className="overflow-x-auto">
-          <div className="inline-block min-w-full">
-            {grid.map((row, rowIdx) => (
-              <div key={rowIdx} className="flex gap-1 mb-1">
-                <div className="w-8 text-sm text-gray-600 flex items-center justify-center">
-                  {String.fromCharCode(65 + rowIdx)}
-                </div>
-                {row.map((showSeat, colIdx) => {
-                  if (!showSeat) return <div key={colIdx} className="w-8 h-8"></div>;
-                  const cat = categoryMap.get(showSeat.categoryId);
-                  const isAvailable = showSeat.status === 'AVAILABLE';
-                  return (
-                    <div
-                      key={colIdx}
-                      className={`w-8 h-8 rounded border-2 flex items-center justify-center text-xs ${
-                        isAvailable
-                          ? 'cursor-pointer hover:scale-110 transition'
-                          : 'opacity-50 cursor-not-allowed'
-                      }`}
-                      style={{
-                        backgroundColor: isAvailable ? cat?.colorHex : '#ccc',
-                        borderColor: cat?.colorHex || '#999',
-                      }}
-                      title={`${showSeat.seat.rowLabel}${showSeat.seat.seatNumber} - ${showSeat.status}`}
-                    >
-                      {showSeat.seat.seatNumber}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="mt-6 text-center">
-          <button className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">
-            Book Tickets (Phase 4)
-          </button>
-        </div>
+        )}
       </div>
     </div>
   );
