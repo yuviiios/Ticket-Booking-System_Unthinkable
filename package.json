@@ -1,0 +1,15 @@
+{
+  "name": "ticket-booking-system",
+  "version": "1.0.0",
+  "description": "High-demand event ticket booking platform with waitlist and QR tickets",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces",
+    "build": "npm run build --workspaces",
+    "start": "npm run start --workspaces"
+  }
+}
