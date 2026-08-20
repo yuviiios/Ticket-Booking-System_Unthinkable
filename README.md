@@ -1,93 +1,210 @@
 # Ticket Booking System
 
-High-demand event ticket booking platform with real-time seat selection, automatic waitlist management, and QR-coded email tickets.
+High-concurrency event ticket booking platform for movies and concerts. Handles simultaneous seat selection with automatic hold expiry, sold-out waitlist management with time-limited offers, and email tickets with QR codes.
+
+## Features
+
+- **Real-time Seat Map:** Live availability with Socket.IO + countdown timers
+- **Concurrency-Safe Hold Engine:** CAS with row locks prevents double-booking
+- **TTL Auto-Release:** Dual-layer expiry (lazy + sweeper) frees abandoned holds
+- **Waitlist with Auto-Assign:** SKIP LOCKED queue, time-limited offers, cascade on expiry
+- **QR Tickets:** HMAC-signed tokens, email delivery with PNG attachment
+- **Role-Based Access:** Admin (venues), Organiser (shows + dashboard), Customer (booking + waitlist)
+- **Revenue Dashboard:** Per-show breakdown, occupancy, category revenue
 
 ## Quick Start
 
 ### Prerequisites
 - Node.js 18+
-- Docker & Docker Compose (for local Postgres)
+- Docker & Docker Compose (local dev)
+- PostgreSQL 14+ (or Docker)
 
-### Setup
+### Local Development
 
 ```bash
-# Clone and install
+# Install dependencies
 npm install
 
-# Start Postgres
+# Start Postgres (Docker)
 docker-compose up -d
 
-# Setup database (Phase 1)
-cd server && npx prisma migrate dev
+# Setup database
+cd server && npx prisma migrate dev && npm run db:seed
+cd ..
 
 # Start dev servers
 npm run dev
 ```
 
-Client runs at http://localhost:5173  
-Server at http://localhost:3001  
-API: http://localhost:3001/health
+Client: http://localhost:5173
+Server: http://localhost:3001
+Health check: http://localhost:3001/health
+
+### Test Data
+
+Auto-seeded logins:
+- **Admin:** admin@test.com / admin123
+- **Organiser:** organiser@test.com / org123
+- **Customer:** customer1@test.com / cust123
+
+### Concurrency Test
+
+```bash
+cd server
+npm run test:race
+```
+
+Spawns two parallel hold requests on the same seat. Verifies exactly one succeeds (201), one fails (409).
 
 ## Project Structure
 
 ```
-server/          Express + TypeScript, real-time Socket.IO, JWT auth
-client/          Vite + React + Tailwind, role-based UI
-docs/            System design, API reference, schema
-docker-compose   Local Postgres for development
+server/              Express + TypeScript + Socket.IO
+  ├─ src/
+  │  ├─ routes/     Endpoints (auth, venues, shows, holds, bookings, waitlist, dashboard)
+  │  ├─ lib/        Database client, QR generation, mailer, waitlist helpers
+  │  ├─ jobs/       Sweeper (TTL expiry, cascade, email drain)
+  │  ├─ realtime/   Socket.IO server
+  │  └─ middleware/ Auth, RBAC
+  ├─ prisma/        Schema + migrations
+  └─ tests/         Race condition verification
+
+client/              Vite + React + TypeScript + Tailwind
+  ├─ src/
+  │  ├─ pages/      Browse, ShowDetail, MyBookings, MyWaitlist, AcceptOffer, Dashboard
+  │  ├─ components/ SeatMap (interactive), GridBuilder
+  │  ├─ hooks/      useShows, useVenues, useSocket
+  │  └─ context/    Auth state + token persistence
+
+docs/
+  ├─ SYSTEM_DESIGN.md  Core mechanisms (CAS, TTL, waitlist, cascade)
+  ├─ API.md            Endpoint reference
+  └─ SCHEMA.md         Database tables + indexes
 ```
 
 ## Tech Stack
 
-| Layer | Choice |
-|-------|--------|
-| Database | PostgreSQL + Prisma + raw SQL (hot path) |
-| Backend | Express + TypeScript + Socket.IO |
-| Frontend | Vite + React + Tailwind + React Router |
-| Real-time | Socket.IO rooms per show |
-| Auth | JWT + bcryptjs, role-based middleware |
-| QR Codes | `qrcode` package → base64 CID attachment |
-| Email | Resend or console driver for dev |
-| Hosting | Vercel (client) + Render (server) + Neon (database) |
+| Layer | Choice | Why |
+|-------|--------|-----|
+| **DB** | PostgreSQL | Row locks, partial indexes, concurrent CAS |
+| **ORM** | Prisma (schema) + raw SQL (hot path) | Generated migrations, explicit locks where needed |
+| **Backend** | Express + TypeScript | Simple, explicit, easy to audit |
+| **Real-time** | Socket.IO (persistent WS) | Live seat updates without polling |
+| **Auth** | JWT + bcryptjs | Stateless, role-based middleware |
+| **Frontend** | React + Tailwind | SPA, context for state |
+| **QR** | qrcode (Node) | Generate PNG, embed in email as CID |
+| **Email** | Resend (prod) + console (dev) | Free tier 100/day, HTML preview writes to disk |
 
-## Environment Variables
+## Core Design Patterns
 
-Copy `.env.example` to `.env` in both `server/` and `client/`.
+### Seat Hold (Concurrency)
+Compare-and-set with row locks: SELECT ... FOR UPDATE, validate predicate (status=AVAILABLE or expired), UPDATE with version increment. Losing txn sees predicate fail, rolls back, returns 409.
 
-### Server
+**Why no optimistic locking alone?** Without row-level locks, two txns could both see AVAILABLE, both attempt UPDATE, both succeed (conflict lost). Row locks + CAS atomic check ensures exactly one winner.
 
-```
-DATABASE_URL          PostgreSQL connection string
-PORT                  3001 (default)
-NODE_ENV              development | production
-CLIENT_URL            Frontend URL for CORS
-JWT_SECRET            Random string, 32+ chars
-JWT_EXPIRES_IN        24h (default)
-QR_SECRET             Random string, 32+ chars
-SEAT_HOLD_TTL_SECONDS 600 (10 minutes, default)
-WAITLIST_OFFER_TTL_SECONDS 1800 (30 minutes, default)
-SWEEP_INTERVAL_MS     5000 (5 seconds, default)
-MAIL_DRIVER           console (dev) | resend (prod)
-RESEND_API_KEY        Your Resend key (if prod)
-EMAIL_FROM            Sender email (Resend subdomain)
-```
+### TTL & Auto-Release
+**Lazy expiry** in every query: `CASE WHEN held_until <= now() THEN 'AVAILABLE'`. Sweeper runs every 5s for timeliness (emit socket updates, process side effects like emails).
 
-### Client
+**Why two layers?** Lazy expiry = correctness (seats never permanently stuck). Sweeper = performance + UX (real-time updates without waiting for next query).
 
-```
-VITE_API_URL          http://localhost:3001 (dev)
-VITE_SOCKET_URL       http://localhost:3001 (dev)
-```
+### Waitlist & Cascade
+Queue per category. On cancel, `FOR UPDATE SKIP LOCKED` prevents convoy; concurrent cancellations each lock a different portion of the queue. Offers expire via sweeper, which auto-cascades to next customer without manual retry.
 
-## Build & Deploy
+### Real-Time Updates
+Socket.IO rooms per show. After every commit (hold, book, release, offer), emit `seat:update` with delta. Frontend patches state instantly, no page reload.
+
+## Deployment
+
+### Hosted (Recommended for Demo)
+
+1. **Database:** Neon PostgreSQL
+   - Create free tier project
+   - Copy connection string → `DATABASE_URL`
+
+2. **Backend:** Render
+   - Connect GitHub repo
+   - Set `NODE_ENV=production`, `DATABASE_URL`, secrets
+   - Deploy from `server/` directory
+   - Note: free tier cold-starts after 15min idle (acceptable for demo)
+
+3. **Frontend:** Vercel
+   - Connect GitHub repo
+   - Set `VITE_API_URL=https://your-render-url.onrender.com`
+   - Deploy from `client/` directory
+
+### Local Production Build
 
 ```bash
+# Build
 npm run build
 
-# Server deploys to Render, client to Vercel
-# Set environment variables in each platform's dashboard
+# Server dist
+cd server && npm run build
+# Run: node dist/index.js
+
+# Client dist
+cd client && npm run build
+# Serve via nginx or `npm run preview`
 ```
 
----
+### Environment Variables
 
-**Status:** Scaffold phase complete. Phases 1–8 follow incrementally.
+**Server (.env)**
+```
+DATABASE_URL=postgresql://...
+PORT=3001
+NODE_ENV=production
+CLIENT_URL=https://your-vercel-url.vercel.app
+JWT_SECRET=<random 32+ chars>
+QR_SECRET=<random 32+ chars>
+MAIL_DRIVER=resend
+RESEND_API_KEY=re_<key>
+EMAIL_FROM=onboarding@resend.dev
+```
+
+**Client (.env)**
+```
+VITE_API_URL=https://your-render-url.onrender.com
+VITE_SOCKET_URL=https://your-render-url.onrender.com
+```
+
+## Documentation
+
+- **[System Design](./docs/SYSTEM_DESIGN.md)** — 800-word deep dive: CAS engine, TTL mechanism, waitlist cascade, SKIP LOCKED queue, concurrency guarantees
+- **[API Reference](./docs/API.md)** — All endpoints, request/response schemas
+- **[Database Schema](./docs/SCHEMA.md)** — Tables, indexes, constraints, concurrency strategy
+
+## Testing
+
+### Race Condition Test
+Two customers simultaneously hold same seat → one succeeds, one fails (409).
+```bash
+npm run test:race
+```
+
+### Manual Testing Checklist
+- [ ] Hold seat → countdown timer starts
+- [ ] Hold expires after TTL (default 10s) → seat auto-releases
+- [ ] Two browser tabs attempt hold on same seat → one blocked with 409
+- [ ] Cancel booking → seat offered to next in waitlist
+- [ ] Accept offer → booking created with email + QR
+- [ ] Verify QR token with gate endpoint → booking details returned
+- [ ] Dashboard shows revenue breakdown by category
+
+## Performance Notes
+
+- Sweeper runs every 5s under advisory lock (single instance safe).
+- Socket.IO polling fallback if WS unavailable (no loss of functionality).
+- Prisma pooler recommended for connection reuse at scale.
+- Neon auto-suspend after 30min idle (acceptable for demo).
+- Render cold-start ≤15min (demos only; production needs HA setup).
+
+## Known Limitations
+
+1. **Email tier:** Resend free = 100/day. Production requires upgrade.
+2. **Socket.IO:** Vercel serverless can't hold connections. Single Render instance works; scale horizontally requires Redis adapter.
+3. **Sweeper:** Single setInterval per process. For HA, use external job queue (Bull, Temporal, AWS EventBridge).
+
+## License
+
+MIT
