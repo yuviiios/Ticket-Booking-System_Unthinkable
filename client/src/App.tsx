@@ -3,11 +3,15 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminVenues from './pages/AdminVenues';
+import OrganiserShows from './pages/OrganiserShows';
+import Browse from './pages/Browse';
+import ShowDetail from './pages/ShowDetail';
 
 function Nav({ user, logout }: any) {
   const location = useLocation();
   const navItems = [
-    { path: '/', label: 'Home', role: ['CUSTOMER', 'ORGANISER', 'ADMIN'] },
+    { path: '/browse', label: 'Browse', role: ['CUSTOMER', 'ORGANISER', 'ADMIN'] },
+    { path: '/organiser/shows', label: 'My Shows', role: ['ORGANISER'] },
     { path: '/admin/venues', label: 'Venues', role: ['ADMIN'] },
   ];
 
@@ -50,19 +54,6 @@ function Nav({ user, logout }: any) {
   );
 }
 
-function Home() {
-  const { user } = useAuth();
-
-  return (
-    <div className="container mx-auto p-4">
-      <div className="text-center">
-        <h2 className="text-3xl font-bold mb-4">Welcome, {user?.name}!</h2>
-        <p className="text-gray-600">Phases 3-7 coming soon...</p>
-      </div>
-    </div>
-  );
-}
-
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   return user ? <>{children}</> : <Navigate to="/login" />;
@@ -79,11 +70,28 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/" element={<Navigate to="/browse" />} />
             <Route
-              path="/"
+              path="/browse"
               element={
                 <ProtectedRoute>
-                  <Home />
+                  <Browse />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/shows/:id"
+              element={
+                <ProtectedRoute>
+                  <ShowDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/organiser/shows"
+              element={
+                <ProtectedRoute>
+                  <OrganiserShows />
                 </ProtectedRoute>
               }
             />
