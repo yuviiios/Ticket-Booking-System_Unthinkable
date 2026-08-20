@@ -1,0 +1,271 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ORGANISER
+  CUSTOMER
+}
+
+enum ShowType {
+  MOVIE
+  CONCERT
+}
+
+enum ShowStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+}
+
+enum ShowSeatStatus {
+  AVAILABLE
+  HELD
+  BOOKED
+  OFFERED
+  BLOCKED
+}
+
+enum SeatHoldStatus {
+  ACTIVE
+  CONVERTED
+  RELEASED
+  EXPIRED
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+enum WaitlistStatus {
+  WAITING
+  OFFERED
+  CONVERTED
+  EXPIRED
+  CANCELLED
+}
+
+enum MailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  id        Int     @id @default(autoincrement())
+  email     String  @unique
+  passwordHash String
+  name      String
+  role      Role
+  createdAt DateTime @default(now())
+
+  bookings       Booking[]
+  waitlistEntries WaitlistEntry[]
+  holds          SeatHold[]
+  shows          Show[] @relation("OrganiserShows")
+}
+
+model Venue {
+  id        Int     @id @default(autoincrement())
+  name      String
+  city      String
+  address   String
+  createdAt DateTime @default(now())
+
+  categories SeatCategory[]
+  seats      Seat[]
+  shows      Show[]
+}
+
+model SeatCategory {
+  id        Int     @id @default(autoincrement())
+  venueId   Int
+  name      String
+  colorHex  String
+  sortOrder Int     @default(0)
+  createdAt DateTime @default(now())
+
+  venue      Venue  @relation(fields: [venueId], references: [id])
+  prices     ShowPrice[]
+  seats      Seat[]
+  waitlistEntries WaitlistEntry[]
+  showSeats  ShowSeat[]
+
+  @@unique([venueId, name])
+}
+
+model Seat {
+  id        Int     @id @default(autoincrement())
+  venueId   Int
+  categoryId Int
+  rowLabel  String
+  seatNumber Int
+  gridRow   Int
+  gridCol   Int
+  createdAt DateTime @default(now())
+
+  venue     Venue  @relation(fields: [venueId], references: [id])
+  category  SeatCategory @relation(fields: [categoryId], references: [id])
+  showSeats ShowSeat[]
+
+  @@unique([venueId, rowLabel, seatNumber])
+}
+
+model Show {
+  id            Int     @id @default(autoincrement())
+  venueId       Int
+  organiserId   Int
+  title         String
+  type          ShowType
+  description   String?
+  startsAt      DateTime
+  status        ShowStatus @default(DRAFT)
+  holdTtlSeconds Int?
+  createdAt     DateTime @default(now())
+
+  venue         Venue  @relation(fields: [venueId], references: [id])
+  organiser     User   @relation("OrganiserShows", fields: [organiserId], references: [id])
+  prices        ShowPrice[]
+  seats         ShowSeat[]
+  bookings      Booking[]
+  holds         SeatHold[]
+  waitlistEntries WaitlistEntry[]
+}
+
+model ShowPrice {
+  id        Int     @id @default(autoincrement())
+  showId    Int
+  categoryId Int
+  priceCents Int
+  createdAt DateTime @default(now())
+
+  show      Show  @relation(fields: [showId], references: [id])
+  category  SeatCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([showId, categoryId])
+}
+
+model ShowSeat {
+  id            Int     @id @default(autoincrement())
+  showId        Int
+  seatId        Int
+  categoryId    Int
+  status        ShowSeatStatus @default(AVAILABLE)
+  heldUntil     DateTime?
+  holdId        Int?
+  bookingId     Int?
+  waitlistOfferId Int?
+  version       Int     @default(0)
+  createdAt     DateTime @default(now())
+
+  show          Show   @relation(fields: [showId], references: [id])
+  seat          Seat   @relation(fields: [seatId], references: [id])
+  category      SeatCategory @relation(fields: [categoryId], references: [id])
+  booking       Booking? @relation(fields: [bookingId], references: [id])
+  bookingSeats  BookingSeat[]
+
+  @@unique([showId, seatId])
+  @@index([showId, status])
+  @@index([status, heldUntil])
+}
+
+model SeatHold {
+  id        Int     @id @default(autoincrement())
+  showId    Int
+  customerId Int
+  status    SeatHoldStatus @default(ACTIVE)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  show      Show   @relation(fields: [showId], references: [id])
+  customer  User   @relation(fields: [customerId], references: [id])
+
+  @@index([status, expiresAt])
+}
+
+model Booking {
+  id        Int     @id @default(autoincrement())
+  bookingRef String  @unique
+  showId    Int
+  customerId Int
+  status    BookingStatus @default(CONFIRMED)
+  totalCents Int
+  cancelledAt DateTime?
+  createdAt DateTime @default(now())
+
+  show      Show   @relation(fields: [showId], references: [id])
+  customer  User   @relation(fields: [customerId], references: [id])
+  seats     BookingSeat[]
+  showSeats ShowSeat[]
+  offers    WaitlistOffer[]
+}
+
+model BookingSeat {
+  id        Int     @id @default(autoincrement())
+  bookingId Int
+  showSeatId Int
+  priceCents Int
+  releasedAt DateTime?
+  createdAt DateTime @default(now())
+
+  booking   Booking @relation(fields: [bookingId], references: [id])
+  showSeat  ShowSeat @relation(fields: [showSeatId], references: [id])
+
+  @@unique([showSeatId])
+  @@index([bookingId])
+}
+
+model WaitlistEntry {
+  id        Int     @id @default(autoincrement())
+  showId    Int
+  categoryId Int
+  customerId Int
+  seatsWanted Int
+  status    WaitlistStatus @default(WAITING)
+  createdAt DateTime @default(now())
+
+  show      Show   @relation(fields: [showId], references: [id])
+  category  SeatCategory @relation(fields: [categoryId], references: [id])
+  customer  User   @relation(fields: [customerId], references: [id])
+  offers    WaitlistOffer[]
+
+  @@unique([showId, categoryId, customerId], where: { status: WAITING })
+  @@index([showId, categoryId, status, createdAt])
+}
+
+model WaitlistOffer {
+  id        Int     @id @default(autoincrement())
+  entryId   Int
+  token     String  @unique
+  expiresAt DateTime
+  status    WaitlistStatus @default(WAITING)
+  bookingId Int?
+  createdAt DateTime @default(now())
+
+  entry     WaitlistEntry @relation(fields: [entryId], references: [id])
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+}
+
+model EmailOutbox {
+  id        Int     @id @default(autoincrement())
+  to        String
+  template  String
+  payload   Json
+  status    MailStatus @default(PENDING)
+  attempts  Int     @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError String?
+  createdAt DateTime @default(now())
+
+  @@index([status, nextAttemptAt])
+}
