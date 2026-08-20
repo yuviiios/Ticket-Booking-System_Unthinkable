@@ -7,12 +7,15 @@ import OrganiserShows from './pages/OrganiserShows';
 import Browse from './pages/Browse';
 import ShowDetail from './pages/ShowDetail';
 import MyBookings from './pages/MyBookings';
+import MyWaitlist from './pages/MyWaitlist';
+import AcceptOffer from './pages/AcceptOffer';
 
 function Nav({ user, logout }: any) {
   const location = useLocation();
   const navItems = [
     { path: '/browse', label: 'Browse', role: ['CUSTOMER', 'ORGANISER', 'ADMIN'] },
     { path: '/bookings', label: 'My Bookings', role: ['CUSTOMER'] },
+    { path: '/waitlist', label: 'Waitlist', role: ['CUSTOMER'] },
     { path: '/organiser/shows', label: 'My Shows', role: ['ORGANISER'] },
     { path: '/admin/venues', label: 'Venues', role: ['ADMIN'] },
   ];
@@ -94,6 +97,22 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <MyBookings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/waitlist"
+              element={
+                <ProtectedRoute>
+                  <MyWaitlist />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/waitlist/accept/:token"
+              element={
+                <ProtectedRoute>
+                  <AcceptOffer />
                 </ProtectedRoute>
               }
             />

@@ -4,6 +4,7 @@ import prisma from '../lib/db.js';
 import { authMiddleware, AuthRequest, requireRole } from '../middleware/auth.js';
 import { generateBookingToken, generateQRCode, verifyBookingToken } from '../lib/qr.js';
 import { sendEmail, renderBookingEmail } from '../lib/mailer.js';
+import { tryAssignWaitlist } from '../lib/waitlist.js';
 import crypto from 'crypto';
 
 const router = Router();
@@ -225,6 +226,73 @@ router.get('/verify/token/:token', authMiddleware, async (req: AuthRequest, res)
     });
   } catch {
     res.status(500).json({ error: 'Verify failed' });
+  }
+});
+
+// CUSTOMER: cancel booking
+router.post('/:ref/cancel', authMiddleware, requireRole('CUSTOMER'), async (req: AuthRequest, res) => {
+  try {
+    const bookingRef = req.params.ref;
+    const customerId = req.userId!;
+
+    const booking = await prisma.booking.findUnique({
+      where: { bookingRef },
+      include: {
+        seats: { include: { showSeat: true } },
+      },
+    });
+
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.customerId !== customerId) {
+      return res.status(403).json({ error: 'Not your booking' });
+    }
+    if (booking.status === 'CANCELLED') {
+      return res.status(409).json({ error: 'Already cancelled' });
+    }
+
+    // Group by category
+    const categoryMap = new Map<number, number[]>();
+    booking.seats.forEach((bs) => {
+      const catId = bs.showSeat.categoryId;
+      if (!categoryMap.has(catId)) categoryMap.set(catId, []);
+      categoryMap.get(catId)!.push(bs.showSeatId);
+    });
+
+    await prisma.$transaction(async (tx) => {
+      // Mark booking as cancelled
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: { status: 'CANCELLED', cancelledAt: new Date() },
+      });
+
+      // Mark booking seats as released
+      await tx.bookingSeat.updateMany({
+        where: { bookingId: booking.id },
+        data: { releasedAt: new Date() },
+      });
+
+      // Release show seats
+      await tx.$executeRaw`
+        UPDATE "ShowSeat"
+        SET status = 'AVAILABLE'::"ShowSeatStatus",
+            "bookingId" = NULL,
+            version = version + 1
+        WHERE "bookingId" = ${booking.id}
+      `;
+    });
+
+    // Trigger waitlist assignment per category
+    for (const [categoryId] of categoryMap) {
+      setImmediate(() => {
+        tryAssignWaitlist(booking.showId, categoryId).catch((err) => {
+          console.error(`Waitlist assign failed for show ${booking.showId} cat ${categoryId}:`, err);
+        });
+      });
+    }
+
+    res.json({ message: 'Booking cancelled' });
+  } catch {
+    res.status(500).json({ error: 'Cancel failed' });
   }
 });
 

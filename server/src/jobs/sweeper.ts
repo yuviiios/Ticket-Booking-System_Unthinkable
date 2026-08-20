@@ -1,6 +1,7 @@
 import prisma from '../lib/db.js';
 import { env } from '../config/env.js';
 import { emitSeatUpdate } from '../realtime/socket.js';
+import { tryAssignWaitlist } from '../lib/waitlist.js';
 
 const LOCK_KEY = 9876543210; // Arbitrary unique key
 
@@ -22,8 +23,8 @@ export function startSweeper() {
 
       try {
         await sweepExpiredHolds();
-        // Phase 6: await sweepExpiredOffers();
-        // Phase 5: await drainEmailOutbox();
+        await sweepExpiredOffers();
+        // TODO: await drainEmailOutbox();
       } finally {
         await prisma.$queryRaw`SELECT pg_advisory_unlock(${LOCK_KEY})`;
       }
@@ -86,6 +87,63 @@ async function sweepExpiredHolds() {
       });
     } catch (err) {
       console.error(`Failed to sweep hold ${hold.id}:`, err);
+    }
+  }
+}
+
+async function sweepExpiredOffers() {
+  const now = new Date();
+
+  const expired = await prisma.waitlistOffer.findMany({
+    where: {
+      status: 'WAITING',
+      expiresAt: { lte: now },
+    },
+    include: { entry: true },
+    take: 100,
+  });
+
+  if (expired.length === 0) return;
+
+  console.log(`Sweeping ${expired.length} expired offers`);
+
+  for (const offer of expired) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Mark offer as expired
+        await tx.waitlistOffer.update({
+          where: { id: offer.id },
+          data: { status: 'EXPIRED' },
+        });
+
+        // Mark entry back to waiting
+        await tx.waitlistEntry.update({
+          where: { id: offer.entryId },
+          data: { status: 'WAITING' },
+        });
+
+        // Release offered seats
+        const released = await tx.$executeRaw`
+          UPDATE "ShowSeat"
+          SET status = 'AVAILABLE'::"ShowSeatStatus",
+              "waitlistOfferId" = NULL,
+              "heldUntil" = NULL,
+              version = version + 1
+          WHERE "waitlistOfferId" = ${offer.id}
+            AND status = 'OFFERED'::"ShowSeatStatus"
+        `;
+
+        if (released > 0) {
+          // Cascade to next in line
+          setImmediate(() => {
+            tryAssignWaitlist(offer.entry.showId, offer.entry.categoryId).catch((err) => {
+              console.error(`Cascade waitlist failed for show ${offer.entry.showId}:`, err);
+            });
+          });
+        }
+      });
+    } catch (err) {
+      console.error(`Failed to sweep offer ${offer.id}:`, err);
     }
   }
 }

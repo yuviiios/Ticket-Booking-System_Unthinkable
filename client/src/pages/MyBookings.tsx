@@ -28,6 +28,25 @@ export default function MyBookings() {
     }
   };
 
+  const handleCancel = async (bookingRef: string) => {
+    if (!confirm('Cancel this booking? Seats will be released to waitlist.')) return;
+    try {
+      const res = await fetch(`${apiUrl}/api/bookings/${bookingRef}/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        alert('Booking cancelled');
+        fetchBookings();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Cancel failed');
+      }
+    } catch {
+      alert('Cancel failed');
+    }
+  };
+
   if (user?.role !== 'CUSTOMER') {
     return <div className="p-4 text-red-600">Customer only</div>;
   }
@@ -88,8 +107,18 @@ export default function MyBookings() {
                 </div>
               </div>
 
-              <div className="mt-4 text-sm text-gray-500">
-                Booked on {new Date(booking.createdAt).toLocaleString()}
+              <div className="mt-4 flex justify-between items-center">
+                <div className="text-sm text-gray-500">
+                  Booked on {new Date(booking.createdAt).toLocaleString()}
+                </div>
+                {booking.status === 'CONFIRMED' && (
+                  <button
+                    onClick={() => handleCancel(booking.bookingRef)}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm"
+                  >
+                    Cancel Booking
+                  </button>
+                )}
               </div>
             </div>
           ))}

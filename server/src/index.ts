@@ -8,6 +8,7 @@ import venueRoutes from './routes/venues.js';
 import showRoutes from './routes/shows.js';
 import holdRoutes from './routes/holds.js';
 import bookingRoutes from './routes/bookings.js';
+import waitlistRoutes from './routes/waitlist.js';
 import { initSocketServer } from './realtime/socket.js';
 import { startSweeper } from './jobs/sweeper.js';
 
@@ -28,6 +29,7 @@ app.use('/api/venues', venueRoutes);
 app.use('/api/shows', showRoutes);
 app.use('/api/holds', holdRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/waitlist', waitlistRoutes);
 
 // Initialize Socket.IO
 initSocketServer(httpServer);
