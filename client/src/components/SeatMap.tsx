@@ -130,6 +130,39 @@ export default function SeatMap({ show, onHoldCreated }: SeatMapProps) {
     }
   };
 
+  const handleCheckout = async () => {
+    if (!myHoldId) return;
+    setLoading(true);
+    setError('');
+
+    try {
+      const res = await fetch(`${apiUrl}/api/bookings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ holdId: myHoldId }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Booking failed');
+      }
+
+      const data = await res.json();
+      alert(`Booking confirmed! Ref: ${data.bookingRef}\nCheck your email for QR ticket.`);
+      setMyHoldId(null);
+      setExpiresAt(null);
+      setSelected(new Set());
+      window.location.href = '/bookings';
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const seatGrid = show.seats || [];
   const maxRow = seatGrid.length > 0 ? Math.max(...seatGrid.map((s: any) => s.seat.gridRow)) + 1 : 0;
   const maxCol = seatGrid.length > 0 ? Math.max(...seatGrid.map((s: any) => s.seat.gridCol)) + 1 : 0;
@@ -238,12 +271,17 @@ export default function SeatMap({ show, onHoldCreated }: SeatMapProps) {
           <>
             <button
               onClick={handleRelease}
-              className="flex-1 px-6 py-3 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700"
+              disabled={loading}
+              className="flex-1 px-6 py-3 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 disabled:bg-gray-400"
             >
               Release Hold
             </button>
-            <button className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">
-              Proceed to Checkout (Phase 5)
+            <button
+              onClick={handleCheckout}
+              disabled={loading}
+              className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400"
+            >
+              {loading ? 'Booking...' : 'Complete Booking'}
             </button>
           </>
         )}

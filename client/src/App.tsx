@@ -6,11 +6,13 @@ import AdminVenues from './pages/AdminVenues';
 import OrganiserShows from './pages/OrganiserShows';
 import Browse from './pages/Browse';
 import ShowDetail from './pages/ShowDetail';
+import MyBookings from './pages/MyBookings';
 
 function Nav({ user, logout }: any) {
   const location = useLocation();
   const navItems = [
     { path: '/browse', label: 'Browse', role: ['CUSTOMER', 'ORGANISER', 'ADMIN'] },
+    { path: '/bookings', label: 'My Bookings', role: ['CUSTOMER'] },
     { path: '/organiser/shows', label: 'My Shows', role: ['ORGANISER'] },
     { path: '/admin/venues', label: 'Venues', role: ['ADMIN'] },
   ];
@@ -84,6 +86,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <ShowDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/bookings"
+              element={
+                <ProtectedRoute>
+                  <MyBookings />
                 </ProtectedRoute>
               }
             />
