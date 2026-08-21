@@ -8,6 +8,12 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
 
+// JWT_EXPIRES_IN is a plain string from env; @types/jsonwebtoken narrows it to
+// ms' StringValue template type, so widen it once here rather than at each call.
+const signOptions: jwt.SignOptions = {
+  expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+};
+
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
@@ -43,7 +49,7 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign(
       { userId: user.id, role: user.role },
       env.JWT_SECRET,
-      { expiresIn: env.JWT_EXPIRES_IN }
+      signOptions
     );
 
     res.status(201).json({
@@ -75,7 +81,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { userId: user.id, role: user.role },
       env.JWT_SECRET,
-      { expiresIn: env.JWT_EXPIRES_IN }
+      signOptions
     );
 
     res.json({

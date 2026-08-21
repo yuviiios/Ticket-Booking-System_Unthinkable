@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { useVenues } from '../hooks/useVenues';
+import { useState } from 'react';
 
 interface GridBuilderProps {
   venueId: number;
@@ -7,7 +6,7 @@ interface GridBuilderProps {
   onGenerate: (rows: number, cols: number, mapping: any) => Promise<void>;
 }
 
-export default function GridBuilder({ venueId, categories, onGenerate }: GridBuilderProps) {
+export default function GridBuilder({ categories, onGenerate }: GridBuilderProps) {
   const [rows, setRows] = useState(5);
   const [cols, setCols] = useState(10);
   const [categoryRows, setCategoryRows] = useState<Array<{ endRow: number; categoryId: number }>>(
