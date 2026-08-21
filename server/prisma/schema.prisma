@@ -221,7 +221,9 @@ model BookingSeat {
   booking   Booking @relation(fields: [bookingId], references: [id])
   showSeat  ShowSeat @relation(fields: [showSeatId], references: [id])
 
-  @@unique([showSeatId])
+  // Uniqueness is enforced by a partial unique index (showSeatId WHERE releasedAt IS NULL),
+  // created via raw SQL in the migration. A seat may be rebooked after cancellation.
+  @@index([showSeatId])
   @@index([bookingId])
 }
 
