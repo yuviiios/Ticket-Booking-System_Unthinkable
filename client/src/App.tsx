@@ -10,6 +10,7 @@ import ShowDetail from './pages/ShowDetail';
 import MyBookings from './pages/MyBookings';
 import MyWaitlist from './pages/MyWaitlist';
 import AcceptOffer from './pages/AcceptOffer';
+import BookingSuccess from './pages/BookingSuccess';
 
 function Nav({ user, logout }: any) {
   const location = useLocation();
@@ -66,15 +67,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return user ? <>{children}</> : <Navigate to="/login" />;
 }
 
-export default function App() {
+function AppContent() {
   const { user, logout } = useAuth();
 
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <div className="min-h-screen bg-gray-50">
-          {user && <Nav user={user} logout={logout} />}
-          <Routes>
+    <div className="min-h-screen bg-gray-50">
+      {user && <Nav user={user} logout={logout} />}
+      <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/" element={<Navigate to="/browse" />} />
@@ -142,8 +141,24 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-          </Routes>
-        </div>
+            <Route
+              path="/booking/success"
+              element={
+                <ProtectedRoute>
+                  <BookingSuccess />
+                </ProtectedRoute>
+              }
+            />
+      </Routes>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppContent />
       </AuthProvider>
     </BrowserRouter>
   );

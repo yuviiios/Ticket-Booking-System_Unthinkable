@@ -102,6 +102,7 @@ router.post('/', authMiddleware, requireRole('CUSTOMER'), async (req: AuthReques
 
     // Send email
     const qrCid = `qr-${bookingRef}`;
+    const qrDataUri = `data:image/png;base64,${qrBuffer.toString('base64')}`;
     const emailHtml = renderBookingEmail({
       customerName: customer?.name || 'Customer',
       showTitle: hold.show.title,
@@ -113,6 +114,7 @@ router.post('/', authMiddleware, requireRole('CUSTOMER'), async (req: AuthReques
       })),
       totalAmount: `$${(result.booking.totalCents / 100).toFixed(2)}`,
       qrCid,
+      qrDataUri,
     });
 
     await sendEmail({
@@ -293,6 +295,29 @@ router.post('/:ref/cancel', authMiddleware, requireRole('CUSTOMER'), async (req:
     res.json({ message: 'Booking cancelled' });
   } catch {
     res.status(500).json({ error: 'Cancel failed' });
+  }
+});
+
+// PUBLIC: get QR code for booking
+router.get('/qr/:ref', async (req, res) => {
+  try {
+    const bookingRef = req.params.ref;
+
+    const booking = await prisma.booking.findUnique({
+      where: { bookingRef },
+      select: { showId: true },
+    });
+
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+    const token = generateBookingToken(bookingRef, booking.showId);
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const qrBuffer = await generateQRCode(`${clientUrl}/tickets/${token}`);
+
+    res.setHeader('Content-Type', 'image/png');
+    res.send(qrBuffer);
+  } catch {
+    res.status(500).json({ error: 'QR generation failed' });
   }
 });
 

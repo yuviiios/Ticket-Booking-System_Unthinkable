@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../hooks/useSocket';
+import { useNavigate } from 'react-router-dom';
 
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -10,6 +11,7 @@ interface SeatMapProps {
 }
 
 export default function SeatMap({ show, onHoldCreated }: SeatMapProps) {
+  const navigate = useNavigate();
   const { token } = useAuth();
   const { connected, on, off } = useSocket(show.id);
   const [seats, setSeats] = useState<Map<number, any>>(new Map());
@@ -151,11 +153,10 @@ export default function SeatMap({ show, onHoldCreated }: SeatMapProps) {
       }
 
       const data = await res.json();
-      alert(`Booking confirmed! Ref: ${data.bookingRef}\nCheck your email for QR ticket.`);
       setMyHoldId(null);
       setExpiresAt(null);
       setSelected(new Set());
-      window.location.href = '/bookings';
+      navigate(`/booking/success?ref=${data.bookingRef}`);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -173,7 +174,9 @@ export default function SeatMap({ show, onHoldCreated }: SeatMapProps) {
     grid[ss.seat.gridRow][ss.seat.gridCol] = updated;
   });
 
-  const categoryMap = new Map(show.venue.categories.map((c: any) => [c.id, c]));
+  const categoryMap = new Map<number, { colorHex: string }>(
+    show.venue.categories.map((c: any) => [c.id, c])
+  );
 
   const getSeatStyle = (showSeat: any) => {
     const cat = categoryMap.get(showSeat.categoryId);

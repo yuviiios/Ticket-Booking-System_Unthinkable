@@ -64,6 +64,7 @@ export function renderBookingEmail(data: {
   seats: Array<{ rowLabel: string; seatNumber: number }>;
   totalAmount: string;
   qrCid: string;
+  qrDataUri?: string;
 }): string {
   return `
 <!DOCTYPE html>
@@ -100,7 +101,7 @@ export function renderBookingEmail(data: {
 
       <div class="qr">
         <h4>Your Ticket QR Code</h4>
-        <img src="cid:${data.qrCid}" alt="QR Code" width="250" />
+        <img src="${data.qrDataUri ? data.qrDataUri : `cid:${data.qrCid}`}" alt="QR Code" width="250" />
         <p style="font-size: 12px; color: #6b7280;">Show this QR code at the venue</p>
       </div>
     </div>
