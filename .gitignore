@@ -13,3 +13,4 @@ build/
 *~
 .DS_Store
 .mail-preview/
+.claude/settings.local.json
