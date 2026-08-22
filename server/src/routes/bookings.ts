@@ -33,11 +33,23 @@ router.post('/', authMiddleware, requireRole('CUSTOMER'), async (req: AuthReques
     if (!hold) return res.status(404).json({ error: 'Hold not found' });
     if (hold.customerId !== customerId) return res.status(403).json({ error: 'Not your hold' });
     if (hold.status !== 'ACTIVE') return res.status(409).json({ error: 'Hold not active' });
-    if (hold.expiresAt < new Date()) return res.status(409).json({ error: 'Hold expired' });
 
     const bookingRef = generateBookingRef();
 
     const result = await prisma.$transaction(async (tx) => {
+      // Re-check hold status inside txn (may have expired since last query)
+      const currentHold = await tx.seatHold.findUnique({
+        where: { id: holdId },
+      });
+
+      if (!currentHold || currentHold.status !== 'ACTIVE') {
+        throw new Error('Hold not active');
+      }
+
+      if (currentHold.expiresAt < new Date()) {
+        throw new Error('Hold expired');
+      }
+
       // Lock seats
       const showSeats = await tx.showSeat.findMany({
         where: { holdId, status: 'HELD' },
@@ -88,46 +100,36 @@ router.post('/', authMiddleware, requireRole('CUSTOMER'), async (req: AuthReques
         data: { status: 'CONVERTED' },
       });
 
-      return { booking, showSeats };
-    });
+      // Queue confirmation email in outbox (will be sent by sweeper)
+      const token = generateBookingToken(bookingRef, hold.showId);
+      const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+      const qrData = `${clientUrl}/tickets/${token}`;
+      const qrBuffer = await generateQRCode(qrData);
 
-    // Generate QR
-    const token = generateBookingToken(bookingRef, hold.showId);
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
-    const qrData = `${clientUrl}/tickets/${token}`;
-    const qrBuffer = await generateQRCode(qrData);
+      const qrCid = `qr-${bookingRef}`;
+      const qrDataUri = `data:image/png;base64,${qrBuffer.toString('base64')}`;
 
-    // Fetch customer
-    const customer = await prisma.user.findUnique({ where: { id: customerId } });
-
-    // Send email
-    const qrCid = `qr-${bookingRef}`;
-    const qrDataUri = `data:image/png;base64,${qrBuffer.toString('base64')}`;
-    const emailHtml = renderBookingEmail({
-      customerName: customer?.name || 'Customer',
-      showTitle: hold.show.title,
-      showDate: new Date(hold.show.startsAt).toLocaleString(),
-      bookingRef,
-      seats: result.showSeats.map((ss) => ({
-        rowLabel: ss.seat.rowLabel,
-        seatNumber: ss.seat.seatNumber,
-      })),
-      totalAmount: `$${(result.booking.totalCents / 100).toFixed(2)}`,
-      qrCid,
-      qrDataUri,
-    });
-
-    await sendEmail({
-      to: customer?.email || '',
-      subject: `Booking Confirmed - ${hold.show.title}`,
-      html: emailHtml,
-      attachments: [
-        {
-          filename: 'ticket-qr.png',
-          content: qrBuffer,
-          cid: qrCid,
+      await tx.emailOutbox.create({
+        data: {
+          to: hold.show.venue.id ? 'queued' : '', // Fetch customer email in sweeper
+          template: 'booking_confirmation',
+          payload: {
+            bookingRef,
+            customerId,
+            showTitle: hold.show.title,
+            showDate: new Date(hold.show.startsAt).toISOString(),
+            seats: showSeats.map((ss) => ({
+              rowLabel: ss.seat.rowLabel,
+              seatNumber: ss.seat.seatNumber,
+            })),
+            totalAmount: `$${(booking.totalCents / 100).toFixed(2)}`,
+            qrData,
+            qrBuffer: qrBuffer.toString('base64'),
+          },
         },
-      ],
+      });
+
+      return { booking, showSeats };
     });
 
     res.status(201).json({
@@ -145,7 +147,10 @@ router.post('/', authMiddleware, requireRole('CUSTOMER'), async (req: AuthReques
     if (err.message === 'NO_SEATS') {
       return res.status(409).json({ error: 'Hold seats not available' });
     }
-    console.error('Booking error:', err);
+    if (err.message === 'Hold expired') {
+      return res.status(409).json({ error: 'Hold expired' });
+    }
+    console.error('Booking error:', err.message);
     res.status(500).json({ error: 'Booking failed' });
   }
 });

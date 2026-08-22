@@ -85,21 +85,34 @@ async function createWaitlistOffer(entryId: number, showSeatIds: number[]) {
       SET "waitlistOfferId" = ${offer.id}
       WHERE id = ANY(${showSeatIds}::int[])
     `;
-  });
 
-  // TODO Phase 6: send offer email
-  const entry = await prisma.waitlistEntry.findUnique({
-    where: { id: entryId },
-    include: {
-      customer: true,
-      show: true,
-      category: true,
-    },
-  });
+    // Fetch entry + show for email payload
+    const entry = await tx.waitlistEntry.findUnique({
+      where: { id: entryId },
+      include: {
+        customer: true,
+        show: true,
+        category: true,
+      },
+    });
 
-  if (entry) {
-    console.log(`Waitlist offer created for ${entry.customer.email}`);
-    console.log(`Token: ${token}, expires: ${expiresAt}`);
-    console.log(`Accept at: ${process.env.CLIENT_URL}/waitlist/accept/${token}`);
-  }
+    if (entry) {
+      // Queue offer email
+      await tx.emailOutbox.create({
+        data: {
+          to: entry.customer.email,
+          template: 'waitlist_offer',
+          payload: {
+            customerName: entry.customer.name,
+            showTitle: entry.show.title,
+            categoryName: entry.category.name,
+            seatsWanted: entry.seatsWanted,
+            token,
+            expiresAt: expiresAt.toISOString(),
+            acceptUrl: `${process.env.CLIENT_URL}/waitlist/accept/${token}`,
+          },
+        },
+      });
+    }
+  });
 }

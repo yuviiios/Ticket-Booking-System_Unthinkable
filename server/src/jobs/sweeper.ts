@@ -2,6 +2,7 @@ import prisma from '../lib/db.js';
 import { env } from '../config/env.js';
 import { emitSeatUpdate } from '../realtime/socket.js';
 import { tryAssignWaitlist } from '../lib/waitlist.js';
+import { sendEmail, renderBookingEmail } from '../lib/mailer.js';
 
 const LOCK_KEY = 9876543210; // Arbitrary unique key
 
@@ -24,7 +25,7 @@ export function startSweeper() {
       try {
         await sweepExpiredHolds();
         await sweepExpiredOffers();
-        // TODO: await drainEmailOutbox();
+        await drainEmailOutbox();
       } finally {
         await prisma.$queryRaw`SELECT pg_advisory_unlock(${LOCK_KEY})`;
       }
@@ -144,6 +145,100 @@ async function sweepExpiredOffers() {
       });
     } catch (err) {
       console.error(`Failed to sweep offer ${offer.id}:`, err);
+    }
+  }
+}
+
+async function drainEmailOutbox() {
+  const pending = await prisma.emailOutbox.findMany({
+    where: {
+      status: 'PENDING',
+      nextAttemptAt: { lte: new Date() },
+    },
+    take: 50,
+  });
+
+  if (pending.length === 0) return;
+
+  console.log(`Draining ${pending.length} pending emails`);
+
+  for (const email of pending) {
+    try {
+      const payload = email.payload as any;
+
+      if (email.template === 'booking_confirmation') {
+        const customer = await prisma.user.findUnique({
+          where: { id: payload.customerId },
+        });
+
+        if (!customer) {
+          await prisma.emailOutbox.update({
+            where: { id: email.id },
+            data: { status: 'FAILED', lastError: 'Customer not found' },
+          });
+          continue;
+        }
+
+        const qrCid = `qr-${payload.bookingRef}`;
+        const qrDataUri = `data:image/png;base64,${payload.qrBuffer}`;
+
+        const html = renderBookingEmail({
+          customerName: customer.name,
+          showTitle: payload.showTitle,
+          showDate: payload.showDate,
+          bookingRef: payload.bookingRef,
+          seats: payload.seats,
+          totalAmount: payload.totalAmount,
+          qrCid,
+          qrDataUri,
+        });
+
+        await sendEmail({
+          to: customer.email,
+          subject: `Booking Confirmed - ${payload.showTitle}`,
+          html,
+          attachments: [
+            {
+              filename: 'ticket-qr.png',
+              content: Buffer.from(payload.qrBuffer, 'base64'),
+              cid: qrCid,
+            },
+          ],
+        });
+      } else if (email.template === 'waitlist_offer') {
+        const html = `
+          <h2>Your Waitlist Offer - ${payload.showTitle}</h2>
+          <p>Hi ${payload.customerName},</p>
+          <p>A seat has become available for the ${payload.categoryName} category of ${payload.showTitle}.</p>
+          <p><strong>Seats available:</strong> ${payload.seatsWanted}</p>
+          <p><strong>Offer expires in:</strong> ${new Date(payload.expiresAt).toLocaleString()}</p>
+          <p><a href="${payload.acceptUrl}">Accept Offer</a></p>
+          <p>If you don't accept within the time limit, the seat will be offered to the next person on the waitlist.</p>
+        `;
+
+        await sendEmail({
+          to: email.to,
+          subject: `Seat Available - ${payload.showTitle}`,
+          html,
+        });
+      }
+
+      await prisma.emailOutbox.update({
+        where: { id: email.id },
+        data: { status: 'SENT', attempts: email.attempts + 1 },
+      });
+    } catch (err) {
+      const nextAttempt = new Date(Date.now() + 60000); // Retry in 1 min
+      await prisma.emailOutbox.update({
+        where: { id: email.id },
+        data: {
+          attempts: email.attempts + 1,
+          lastError: String(err),
+          nextAttemptAt: email.attempts < 5 ? nextAttempt : undefined,
+          status: email.attempts >= 5 ? 'FAILED' : 'PENDING',
+        },
+      });
+      console.error(`Email send failed (attempt ${email.attempts + 1}):`, err);
     }
   }
 }
