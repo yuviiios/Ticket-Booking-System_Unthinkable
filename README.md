@@ -54,7 +54,7 @@ cd server
 npm run test:race
 ```
 
-Spawns two parallel hold requests on the same seat. Verifies exactly one succeeds (201), one fails (409).
+Requires the server to be running (`npm run dev`) and the database seeded. Spawns two parallel hold requests on the same seat and verifies exactly one succeeds (201), one fails (409). The TTL-reclaim test is skipped unless the show's `holdTtlSeconds` is 30 or less.
 
 ## Project Structure
 
@@ -184,7 +184,7 @@ npm run test:race
 
 ### Manual Testing Checklist
 - [ ] Hold seat → countdown timer starts
-- [ ] Hold expires after TTL (default 10s) → seat auto-releases
+- [ ] Hold expires after TTL (seeded shows use 600s; lower `holdTtlSeconds` on the show to test faster) → seat auto-releases
 - [ ] Two browser tabs attempt hold on same seat → one blocked with 409
 - [ ] Cancel booking → seat offered to next in waitlist
 - [ ] Accept offer → booking created with email + QR

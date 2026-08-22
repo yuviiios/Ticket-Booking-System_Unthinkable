@@ -27,6 +27,22 @@ async function createHold(token: string, showId: number, seatIds: number[]) {
   return { status: res.status, data: await res.json() };
 }
 
+// Pick the first PUBLISHED show. IDs are autoincrement and reseeding does not
+// reset the sequences, so they must be discovered rather than hardcoded.
+async function getPublishedShow() {
+  const res = await fetch(`${API_URL}/api/shows`);
+  const shows = await res.json();
+  assert.ok(Array.isArray(shows) && shows.length > 0, 'No published shows — run `npm run db:seed`');
+  return shows[0];
+}
+
+// Available seat ids for a show, in grid order.
+async function getAvailableSeatIds(showId: number) {
+  const res = await fetch(`${API_URL}/api/shows/${showId}`);
+  const show = await res.json();
+  return show.seats.filter((s: any) => s.status === 'AVAILABLE').map((s: any) => s.seatId);
+}
+
 test('Concurrent hold requests - exactly one wins', async () => {
   // Login as two customers
   const token1 = await login('customer1@test.com', 'cust123');
@@ -35,14 +51,17 @@ test('Concurrent hold requests - exactly one wins', async () => {
   assert.ok(token1, 'Customer1 login failed');
   assert.ok(token2, 'Customer2 login failed');
 
+  const show = await getPublishedShow();
+  const available = await getAvailableSeatIds(show.id);
+  assert.ok(available.length > 0, 'No available seats — reseed the database');
+
   // Target same seat
-  const showId = 1;
-  const seatIds = [1]; // Seat A1 (assuming seed data exists)
+  const seatIds = [available[0]];
 
   // Fire parallel requests
   const [result1, result2] = await Promise.all([
-    createHold(token1, showId, seatIds),
-    createHold(token2, showId, seatIds),
+    createHold(token1, show.id, seatIds),
+    createHold(token2, show.id, seatIds),
   ]);
 
   console.log('Result1:', result1.status, result1.data);
@@ -59,20 +78,32 @@ test('Concurrent hold requests - exactly one wins', async () => {
 
 test('Expired hold is reclaimed by next request', async (t) => {
   const token = await login('customer1@test.com', 'cust123');
-  const showId = 1;
-  const seatIds = [2]; // Seat A2
+
+  const show = await getPublishedShow();
+  const ttl = show.holdTtlSeconds ?? 600;
+
+  // Production TTL is 10 minutes — too long to wait for in a test run. Lower the
+  // show's holdTtlSeconds (or set SEAT_HOLD_TTL_SECONDS) to exercise this path.
+  if (ttl > 30) {
+    t.skip(`Show TTL is ${ttl}s; set holdTtlSeconds <= 30 on the show to run this test`);
+    return;
+  }
+
+  const available = await getAvailableSeatIds(show.id);
+  assert.ok(available.length > 0, 'No available seats — reseed the database');
+  const seatIds = [available[0]];
 
   // Create hold
-  const hold1 = await createHold(token, showId, seatIds);
+  const hold1 = await createHold(token, show.id, seatIds);
   assert.strictEqual(hold1.status, 201, 'First hold should succeed');
 
   console.log('Hold created, expires at:', hold1.data.expiresAt);
-  console.log('Waiting 12 seconds for TTL expiry (if TTL=10s)...');
+  console.log(`Waiting ${ttl + 5} seconds for TTL expiry...`);
 
-  // Wait for TTL + sweeper cycle (default 10s + 5s buffer)
-  await new Promise((resolve) => setTimeout(resolve, 15000));
+  // Wait for TTL + sweeper cycle
+  await new Promise((resolve) => setTimeout(resolve, (ttl + 5) * 1000));
 
   // Try to hold same seat - should succeed (reclaim expired hold)
-  const hold2 = await createHold(token, showId, seatIds);
+  const hold2 = await createHold(token, show.id, seatIds);
   assert.strictEqual(hold2.status, 201, 'Second hold should reclaim expired seat');
 });
