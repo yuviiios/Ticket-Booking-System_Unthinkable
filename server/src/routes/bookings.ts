@@ -107,11 +107,15 @@ router.post('/', authMiddleware, requireRole('CUSTOMER'), async (req: AuthReques
       const qrBuffer = await generateQRCode(qrData);
 
       const qrCid = `qr-${bookingRef}`;
-      const qrDataUri = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+
+      const customer = await tx.user.findUnique({
+        where: { id: customerId },
+        select: { email: true },
+      });
 
       await tx.emailOutbox.create({
         data: {
-          to: hold.show.venue.id ? 'queued' : '', // Fetch customer email in sweeper
+          to: customer?.email ?? '',
           template: 'booking_confirmation',
           payload: {
             bookingRef,
